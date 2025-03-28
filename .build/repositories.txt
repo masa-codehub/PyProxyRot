@@ -1,0 +1,3 @@
+https://github.com/masa-codehub/stock_screener.git
+https://github.com/masa-codehub/stock_mining_service.git
+#EOF

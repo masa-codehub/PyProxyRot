@@ -1,0 +1,9 @@
+# high priority
+selenium
+requests
+bs4
+python-dotenv
+
+# middle priority
+
+# low priority

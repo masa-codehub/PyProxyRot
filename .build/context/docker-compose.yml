@@ -1,0 +1,27 @@
+services:
+  service-name:
+    build:
+      context: ./${PROJECT_NAME}/.build
+      dockerfile: Dockerfile
+    image: ${PROJECT_NAME}_image
+    volumes:
+      - ./${PROJECT_NAME}:${CONTAINER_VOLUME}
+    working_dir: ${CONTAINER_VOLUME}
+    environment:
+      - PROJECT_NAME=${PROJECT_NAME}
+      - SELENIUM_HUB=${SELENIUM_HUB:-http://selenium:4444/wd/hub}
+    # command: ["bash", "run.sh"]
+    stdin_open: true
+    tty: true
+    
+  selenium:
+    build: 
+      context: ./${PROJECT_NAME}/.edge
+      dockerfile: Dockerfile
+    image: ${PROJECT_NAME}_edge_image
+    volumes:
+      - ${SELENIUM_SHARED}:${SELENIUM_SHARED}
+      - ${LOCAL_DOWNLOADS}:${SELENIUM_DOWNLOADS}
+    ports:
+      - ${HUB_PORT}:${HUB_PORT}
+      - ${BROWSER_PORT}:${BROWSER_PORT}

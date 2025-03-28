@@ -1,0 +1,12 @@
+services:
+  selenium:
+    build: 
+      context: ./${AUTONO_BROWSER}/.edge
+      dockerfile: Dockerfile
+    image: ${AUTONO_BROWSER}_edge_image
+    volumes:
+      - ${SELENIUM_SHARED}:${SELENIUM_SHARED}
+      - ${LOCAL_DOWNLOADS}:${SELENIUM_DOWNLOADS}
+    ports:
+      - ${HUB_PORT}:${HUB_PORT}
+      - ${BROWSER_PORT}:${BROWSER_PORT}
