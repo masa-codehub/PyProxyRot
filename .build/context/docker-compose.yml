@@ -9,6 +9,7 @@ services:
     working_dir: ${CONTAINER_VOLUME}
     environment:
       - PROJECT_NAME=${PROJECT_NAME}
+      - PYTHONPATH=${CONTAINER_VOLUME}
       - SELENIUM_HUB=${SELENIUM_HUB:-http://selenium:4444/wd/hub}
     # command: ["bash", "run.sh"]
     stdin_open: true
