@@ -2,10 +2,7 @@
 import pytest
 from dataclasses import FrozenInstanceError
 
-# --- テスト対象のクラスを import (まだ存在しない) ---
-# from src.domain.proxy_info import ProxyInfo
-
-# --- テスト ---
+from src.domain.proxy_info import ProxyInfo
 
 
 def test_proxy_info_initialization_and_attributes():
