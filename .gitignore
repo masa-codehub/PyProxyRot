@@ -1,1 +1,5 @@
 .edge/.mitmproxy/*
+.pytest_cache
+screenshots/*
+src/.pytest_cache
+*.log
