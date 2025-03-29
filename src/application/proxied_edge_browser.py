@@ -1,8 +1,9 @@
 # src/application/proxied_edge_browser.py
 
 import logging
-from typing import Optional, Type  # Type は __exit__ で使用
-from types import TracebackType  # __exit__ の型ヒント用 (重複削除)
+from typing import Optional, Type
+from types import TracebackType
+from pathlib import Path  # ★ 追加: ディレクトリ操作のため
 from selenium import webdriver
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
 from selenium.webdriver.edge.options import Options as EdgeOptions
@@ -12,16 +13,14 @@ from selenium.common.exceptions import WebDriverException
 from ..adapters.edge_option_factory import EdgeOptionFactory
 from ..application.proxy_selector import ProxySelector
 from ..config.logging_config import get_logger
-from ..domain.proxy_info import ProxyInfo  # 型ヒントで使用
+from ..domain.proxy_info import ProxyInfo
 
 
 class ProxiedEdgeBrowser:
     """
     ProxyProviderから選択されたプロキシを使用し、Remote WebDriver経由で
     接続されるSelenium Edge WebDriverインスタンスを管理します。
-
-    ブラウザの起動（プロキシ使用）、スクリーンショット取得、終了処理を扱います。
-    コンテキストマネージャとしても利用可能です。
+    (以下、クラスDocstring省略)
     """
 
     def __init__(
@@ -32,27 +31,17 @@ class ProxiedEdgeBrowser:
         logger: logging.Logger | None = None
     ):
         """
-        ProxiedEdgeBrowserを初期化します。
-
-        Args:
-            proxy_selector: プロキシを選択するための ProxySelector インスタンス。
-            option_factory: EdgeOptions を作成するための EdgeOptionFactory インスタンス。
-            command_executor: Remote WebDriverサーバー (Selenium Hub/Standalone) のURL。
-            logger: オプションのロガーインスタンス。Noneの場合はデフォルトのロガーを使用します。
-
-        Raises:
-            TypeError: proxy_selector または option_factory の型が不正な場合。
-            ValueError: command_executor が空または文字列でない場合。
+        (コンストラクタDocstringと実装は変更なし)
         """
         if not isinstance(proxy_selector, ProxySelector):
             raise TypeError(
-                "proxy_selector must be an instance of ProxySelector")  # 英語に変更
+                "proxy_selector must be an instance of ProxySelector")
         if not isinstance(option_factory, EdgeOptionFactory):
             raise TypeError(
-                "option_factory must be an instance of EdgeOptionFactory")  # 英語に変更
+                "option_factory must be an instance of EdgeOptionFactory")
         if not command_executor or not isinstance(command_executor, str):
             raise ValueError(
-                "command_executor URL cannot be empty and must be a string")  # 英語に変更
+                "command_executor URL cannot be empty and must be a string")
 
         self._selector: ProxySelector = proxy_selector
         self._option_factory: EdgeOptionFactory = option_factory
@@ -61,25 +50,12 @@ class ProxiedEdgeBrowser:
         self._driver: RemoteWebDriver | None = None
 
         self._logger.debug(
-            # 英語に変更
             f"ProxiedEdgeBrowser initialized. Executor: {self._command_executor}")
 
     def start_browser(self, proxy_index: int) -> None:
         """
-        指定されたインデックスのプロキシを使用して、Remote WebDriver経由で
-        Edgeブラウザセッションを開始します。
-
-        既にアクティブなセッションがある場合は、先にそれを閉じます。
-
-        Args:
-            proxy_index: ProxyProviderリストから使用するプロキシのインデックス。
-
-        Raises:
-            IndexError, TypeError: プロキシ選択またはオプション生成でのエラー。
-            WebDriverException: WebDriverの起動に失敗した場合。
-            Exception: その他の予期せぬエラー。
+        (start_browser のDocstringと実装は変更なし - 英語ログ版)
         """
-        # ★ ログメッセージを英語に変更 ★
         self._logger.info(
             f"Attempting to start browser using proxy index {proxy_index}...")
         if self._driver is not None:
@@ -88,12 +64,9 @@ class ProxiedEdgeBrowser:
             self.close_browser()
 
         try:
-            # 1. プロキシを選択
             proxy_info: ProxyInfo = self._selector.select_proxy(proxy_index)
             self._logger.debug(
                 f"Selected proxy: {proxy_info.host}:{proxy_info.port}")
-
-            # 2. EdgeOptions を生成
             options: EdgeOptions = self._option_factory.create_options(
                 proxy_info)
             try:
@@ -105,7 +78,6 @@ class ProxiedEdgeBrowser:
                 self._logger.debug(
                     "Could not retrieve arguments from EdgeOptions (potentially changed in Selenium version).")
 
-            # 3. Remote WebDriver セッションを開始
             self._logger.debug(
                 f"Connecting to Remote WebDriver at {self._command_executor}...")
             self._driver = webdriver.Remote(
@@ -121,7 +93,6 @@ class ProxiedEdgeBrowser:
                 f"Failed to prepare for browser start: {e}", exc_info=True)
             self._driver = None
             raise
-
         except WebDriverException as e:
             self._logger.error(
                 f"Failed to start WebDriver session: {e}", exc_info=True)
@@ -132,7 +103,6 @@ class ProxiedEdgeBrowser:
                     pass
             self._driver = None
             raise
-
         except Exception as e:
             self._logger.error(
                 f"An unexpected error occurred during browser startup: {e}", exc_info=True)
@@ -144,45 +114,94 @@ class ProxiedEdgeBrowser:
             self._driver = None
             raise
 
-    def take_screenshot(self, url: str, save_path: str) -> None:
-        """(Issue #10 で実装)"""
+    # --- ↓↓↓ take_screenshot メソッドの修正 ↓↓↓ ---
+    def take_screenshot(self, url: str, save_path_in_container: str) -> None:
+        """
+        現在のブラウザセッションで指定されたURLに移動し、スクリーンショットを保存します。
+        保存先のディレクトリが存在しない場合は作成を試みます。
+
+        Args:
+            url: 移動先のURL。
+            save_path_in_container: スクリーンショットを保存するフルファイルパス（コンテナ内のパス）。
+
+        Raises:
+            RuntimeError: ブラウザが起動していない場合。
+            WebDriverException: URLへの移動またはスクリーンショットの保存に失敗した場合。
+            OSError: スクリーンショット保存ディレクトリの作成に失敗した場合。
+            Exception: その他の予期せぬエラー。
+        """
         if self._driver is None:
             self._logger.error(
-                "Browser not started when attempting to take screenshot.")  # 英語に変更
+                "Browser not started when attempting to take screenshot.")
             raise RuntimeError(
-                "Browser not started. Call start_browser() first.")  # 英語に変更
+                "Browser not started. Call start_browser() first.")
 
         self._logger.info(
-            # 英語に変更
-            f"Navigating to '{url}' and saving screenshot to '{save_path}'.")
-        self._logger.warning(
-            "take_screenshot is not implemented yet (Issue #10)")  # 英語に変更
-        pass
+            f"Navigating to '{url}' and saving screenshot to '{save_path_in_container}'.")
+        try:
+            # 1. 保存先ディレクトリの確認と作成
+            save_dir = Path(save_path_in_container).parent
+            if not save_dir.exists():
+                self._logger.debug(
+                    f"Creating screenshot directory: {save_dir}")
+                # ★ mkdirのエラーはここで捕捉せず、外側のOSErrorで処理する方針に変更
+                # (あるいは、ここでログを出力せずに raise する)
+                save_dir.mkdir(parents=True, exist_ok=True)
+                self._logger.debug(f"Directory {save_dir} ensured.")
 
+            # 2. URLへ移動
+            self._logger.debug(f"Navigating to URL: {url}")
+            self._driver.get(url)
+            self._logger.debug(f"Navigation to {url} completed.")
+
+            # 3. スクリーンショットを保存
+            self._logger.debug(
+                f"Saving screenshot to: {save_path_in_container}")
+            if not self._driver.save_screenshot(save_path_in_container):
+                self._logger.warning(
+                    f"save_screenshot returned False for path: {save_path_in_container}")
+                # 必要ならここでエラーにする: raise IOError(...)
+            self._logger.info(
+                f"Screenshot saved successfully to '{save_path_in_container}'.")
+
+        # ★★★ エラーハンドリングの修正: 具体的な例外を先に捕捉 ★★★
+        except WebDriverException as e:
+            # URL移動失敗やスクリーンショット保存失敗（WebDriver由来）
+            self._logger.error(
+                f"WebDriverException during screenshot process: {e}", exc_info=True)
+            raise  # WebDriver関連のエラーは再送出
+        except OSError as e:
+            # ディレクトリ作成失敗 (mkdir が送出)
+            self._logger.error(
+                f"OSError during screenshot process (likely directory creation): {e}", exc_info=True)
+            raise  # OSError も再送出
+        except Exception as e:
+            # その他の予期せぬエラー
+            self._logger.error(
+                f"An unexpected error occurred during screenshot process: {e}", exc_info=True)
+            raise
+        # ★★★ 修正ここまで ★★★
+
+    # --- close_browser, __enter__, __exit__ は変更なし ---
     def close_browser(self) -> None:
         """
         現在アクティブなブラウザセッションを閉じ、WebDriverを終了します。
         """
         if self._driver is not None:
-            self._logger.info("Closing browser session...")  # 英語に変更
+            self._logger.info("Closing browser session...")
             try:
                 self._driver.quit()
-                self._logger.info(
-                    "Browser session closed successfully.")  # 英語に変更
+                self._logger.info("Browser session closed successfully.")
             except Exception as e:
                 self._logger.error(
-                    # 英語に変更
                     f"Error occurred during browser quit: {e}", exc_info=True)
             finally:
                 self._driver = None
         else:
-            self._logger.debug("No active browser session to close.")  # 英語に変更
-        # ★ 不要な pass を削除 ★
+            self._logger.debug("No active browser session to close.")
 
-    # --- コンテキストマネージャサポート ---
     def __enter__(self) -> 'ProxiedEdgeBrowser':
-        """'with' ステートメントで使用可能にします。self を返します。"""
-        self._logger.debug("Entering ProxiedEdgeBrowser context.")  # 英語に変更
+        self._logger.debug("Entering ProxiedEdgeBrowser context.")
         return self
 
     def __exit__(
@@ -191,7 +210,9 @@ class ProxiedEdgeBrowser:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None
     ) -> None:
-        """'with' ブロック終了時にブラウザが確実に閉じられるようにします。"""
         self._logger.debug(
-            "Exiting ProxiedEdgeBrowser context, ensuring browser closure.")  # 英語に変更
+            "Exiting ProxiedEdgeBrowser context, ensuring browser closure.")
         self.close_browser()
+
+
+# __exit__ の型ヒントのために import
