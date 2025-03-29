@@ -1,16 +1,18 @@
 # src/application/proxied_edge_browser.py
 
 import logging
-from typing import Optional, Type  # Typeを使うために追加
-from types import TracebackType  # Typeを使うために追加
+from typing import Optional, Type  # Type は __exit__ で使用
+from types import TracebackType  # __exit__ の型ヒント用 (重複削除)
 from selenium import webdriver
-from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver  # 型ヒントのため
-from selenium.webdriver.edge.options import Options as EdgeOptions  # 型ヒントのため
+from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.common.exceptions import WebDriverException
 
-# アプリケーション層内やアダプター層の依存を相対インポート
+# 相対インポート
 from ..adapters.edge_option_factory import EdgeOptionFactory
 from ..application.proxy_selector import ProxySelector
-from ..config.logging_config import get_logger  # 設定済みのロガーを使用
+from ..config.logging_config import get_logger
+from ..domain.proxy_info import ProxyInfo  # 型ヒントで使用
 
 
 class ProxiedEdgeBrowser:
@@ -26,8 +28,8 @@ class ProxiedEdgeBrowser:
         self,
         proxy_selector: ProxySelector,
         option_factory: EdgeOptionFactory,
-        command_executor: str = 'http://selenium:4444/wd/hub',  # Selenium HubのデフォルトURL
-        logger: Optional[logging.Logger] = None
+        command_executor: str = 'http://selenium:4444/wd/hub',
+        logger: logging.Logger | None = None
     ):
         """
         ProxiedEdgeBrowserを初期化します。
@@ -43,22 +45,24 @@ class ProxiedEdgeBrowser:
             ValueError: command_executor が空または文字列でない場合。
         """
         if not isinstance(proxy_selector, ProxySelector):
-            raise TypeError("proxy_selector は ProxySelector のインスタンスである必要があります")
+            raise TypeError(
+                "proxy_selector must be an instance of ProxySelector")  # 英語に変更
         if not isinstance(option_factory, EdgeOptionFactory):
             raise TypeError(
-                "option_factory は EdgeOptionFactory のインスタンスである必要があります")
+                "option_factory must be an instance of EdgeOptionFactory")  # 英語に変更
         if not command_executor or not isinstance(command_executor, str):
-            raise ValueError("command_executor URL は空にできず、文字列である必要があります")
+            raise ValueError(
+                "command_executor URL cannot be empty and must be a string")  # 英語に変更
 
         self._selector: ProxySelector = proxy_selector
         self._option_factory: EdgeOptionFactory = option_factory
         self._command_executor: str = command_executor
-        self._logger: logging.Logger = logger or get_logger()  # 指定がない場合はデフォルトロガーを取得
-        # WebDriverインスタンス、初期値はNone
-        self._driver: Optional[RemoteWebDriver] = None
+        self._logger: logging.Logger = logger or get_logger()
+        self._driver: RemoteWebDriver | None = None
 
         self._logger.debug(
-            f"ProxiedEdgeBrowser が初期化されました。Executor: {self._command_executor}")
+            # 英語に変更
+            f"ProxiedEdgeBrowser initialized. Executor: {self._command_executor}")
 
     def start_browser(self, proxy_index: int) -> None:
         """
@@ -71,95 +75,123 @@ class ProxiedEdgeBrowser:
             proxy_index: ProxyProviderリストから使用するプロキシのインデックス。
 
         Raises:
-            IndexError: proxy_index が不正な場合。
+            IndexError, TypeError: プロキシ選択またはオプション生成でのエラー。
             WebDriverException: WebDriverの起動に失敗した場合。
-            # オプション生成やプロキシ選択中に他の例外が発生する可能性あり
+            Exception: その他の予期せぬエラー。
         """
-        self._logger.info(f"プロキシインデックス {proxy_index} を使用してブラウザを起動します...")
-        # 既存セッションがあれば閉じる
-        self.close_browser()
+        # ★ ログメッセージを英語に変更 ★
+        self._logger.info(
+            f"Attempting to start browser using proxy index {proxy_index}...")
+        if self._driver is not None:
+            self._logger.warning(
+                "An active browser session exists. Closing it before starting a new one.")
+            self.close_browser()
 
-        # --- 実際の処理は Issue #9 で実装 ---
-        self._logger.warning("start_browser の実装はまだです (Issue #9)")  # 実装待ちを示すログ
-        pass  # 実装待ちのプレースホルダー
-        # 将来の実装例:
-        # try:
-        #     proxy_info = self._selector.select_proxy(proxy_index)
-        #     self._logger.debug(f"選択されたプロキシ: {proxy_info.host}:{proxy_info.port}")
-        #     options = self._option_factory.create_options(proxy_info)
-        #     self._logger.debug("EdgeOptions を生成しました。")
-        #     self._driver = webdriver.Remote(command_executor=self._command_executor, options=options)
-        #     self._logger.info("ブラウザセッションが正常に開始されました。")
-        # except IndexError as e:
-        #     self._logger.error(f"無効なプロキシインデックス: {proxy_index} - {e}")
-        #     raise # エラーを再送出
-        # except Exception as e:
-        #     self._logger.error(f"ブラウザ起動中にエラーが発生しました: {e}", exc_info=True)
-        #     raise # エラーを再送出
+        try:
+            # 1. プロキシを選択
+            proxy_info: ProxyInfo = self._selector.select_proxy(proxy_index)
+            self._logger.debug(
+                f"Selected proxy: {proxy_info.host}:{proxy_info.port}")
+
+            # 2. EdgeOptions を生成
+            options: EdgeOptions = self._option_factory.create_options(
+                proxy_info)
+            try:
+                args_str = " ".join(options.arguments) if hasattr(
+                    options, 'arguments') and options.arguments else "N/A or Arguments not accessible"
+                self._logger.debug(
+                    f"Generated EdgeOptions with arguments: {args_str}")
+            except Exception:
+                self._logger.debug(
+                    "Could not retrieve arguments from EdgeOptions (potentially changed in Selenium version).")
+
+            # 3. Remote WebDriver セッションを開始
+            self._logger.debug(
+                f"Connecting to Remote WebDriver at {self._command_executor}...")
+            self._driver = webdriver.Remote(
+                command_executor=self._command_executor,
+                options=options
+            )
+            session_id = getattr(self._driver, 'session_id', 'N/A')
+            self._logger.info(
+                f"Browser session started successfully. Session ID: {session_id}")
+
+        except (IndexError, TypeError) as e:
+            self._logger.error(
+                f"Failed to prepare for browser start: {e}", exc_info=True)
+            self._driver = None
+            raise
+
+        except WebDriverException as e:
+            self._logger.error(
+                f"Failed to start WebDriver session: {e}", exc_info=True)
+            if self._driver:
+                try:
+                    self._driver.quit()
+                except Exception:
+                    pass
+            self._driver = None
+            raise
+
+        except Exception as e:
+            self._logger.error(
+                f"An unexpected error occurred during browser startup: {e}", exc_info=True)
+            if self._driver:
+                try:
+                    self._driver.quit()
+                except Exception:
+                    pass
+            self._driver = None
+            raise
 
     def take_screenshot(self, url: str, save_path: str) -> None:
-        """
-        現在のブラウザセッションで指定されたURLに移動し、スクリーンショットを保存します。
-
-        Args:
-            url: 移動先のURL。
-            save_path: スクリーンショットを保存するフルファイルパス。
-
-        Raises:
-            RuntimeError: ブラウザが起動していない場合。
-            WebDriverException: URLへの移動またはスクリーンショットの保存に失敗した場合。
-        """
+        """(Issue #10 で実装)"""
         if self._driver is None:
-            self._logger.error("スクリーンショット取得試行時、ブラウザが起動していません。")
-            raise RuntimeError("ブラウザが起動していません。先に start_browser() を呼び出してください。")
+            self._logger.error(
+                "Browser not started when attempting to take screenshot.")  # 英語に変更
+            raise RuntimeError(
+                "Browser not started. Call start_browser() first.")  # 英語に変更
 
-        self._logger.info(f"URL '{url}' に移動し、スクリーンショットを '{save_path}' に保存します。")
-        # --- 実際の処理は Issue #10 で実装 ---
-        self._logger.warning("take_screenshot の実装はまだです (Issue #10)")
-        pass  # 実装待ちのプレースホルダー
-        # 将来の実装例:
-        # try:
-        #     self._driver.get(url)
-        #     self._logger.debug(f"URL '{url}' に移動しました。")
-        #     self._driver.save_screenshot(save_path)
-        #     self._logger.info(f"スクリーンショットを '{save_path}' に保存しました。")
-        # except Exception as e:
-        #     self._logger.error(f"スクリーンショット取得中にエラーが発生しました: {e}", exc_info=True)
-        #     raise
+        self._logger.info(
+            # 英語に変更
+            f"Navigating to '{url}' and saving screenshot to '{save_path}'.")
+        self._logger.warning(
+            "take_screenshot is not implemented yet (Issue #10)")  # 英語に変更
+        pass
 
     def close_browser(self) -> None:
         """
         現在アクティブなブラウザセッションを閉じ、WebDriverを終了します。
         """
         if self._driver is not None:
-            self._logger.info("ブラウザセッションを閉じます...")
+            self._logger.info("Closing browser session...")  # 英語に変更
             try:
                 self._driver.quit()
-                self._logger.info("ブラウザセッションを正常に閉じました。")
+                self._logger.info(
+                    "Browser session closed successfully.")  # 英語に変更
             except Exception as e:
-                # quit() が失敗してもエラーログは出すが、処理は続行する（リソース解放を試みる）
-                self._logger.error(f"ブラウザ終了処理中にエラーが発生しました: {e}", exc_info=True)
+                self._logger.error(
+                    # 英語に変更
+                    f"Error occurred during browser quit: {e}", exc_info=True)
             finally:
-                self._driver = None  # WebDriverインスタンスへの参照を解除
+                self._driver = None
         else:
-            self._logger.debug("閉じるべきアクティブなブラウザセッションはありません。")
-        # --- 実装の改善は Issue #11 で ---
-        pass  # 実装待ちのプレースホルダー
+            self._logger.debug("No active browser session to close.")  # 英語に変更
+        # ★ 不要な pass を削除 ★
 
     # --- コンテキストマネージャサポート ---
     def __enter__(self) -> 'ProxiedEdgeBrowser':
         """'with' ステートメントで使用可能にします。self を返します。"""
-        # 注意: enter 時にブラウザは自動起動しません。
-        # 'with' ブロック内で明示的に start_browser() を呼び出す必要があります。
-        self._logger.debug("ProxiedEdgeBrowser コンテキストに入ります。")
+        self._logger.debug("Entering ProxiedEdgeBrowser context.")  # 英語に変更
         return self
 
     def __exit__(
         self,
-        exc_type: Optional[Type[BaseException]],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[TracebackType]
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None
     ) -> None:
         """'with' ブロック終了時にブラウザが確実に閉じられるようにします。"""
-        self._logger.debug("ProxiedEdgeBrowser コンテキストを抜けます。ブラウザ終了処理を実行します。")
+        self._logger.debug(
+            "Exiting ProxiedEdgeBrowser context, ensuring browser closure.")  # 英語に変更
         self.close_browser()
