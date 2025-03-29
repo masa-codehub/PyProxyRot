@@ -4,6 +4,7 @@ requests
 bs4
 python-dotenv
 pytest
+pytest-mock
 
 # middle priority
 
