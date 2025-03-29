@@ -1,96 +1,101 @@
 # Python + Selenium プロキシ経由スクリーンショット取得ツール
 
-## 概要
+## 1. プロジェクト概要
 
-このプロジェクトは、Python と Selenium (Microsoft Edge) を使用し、指定されたプロキシサーバーリストを経由して特定のウェブサイトにアクセスし、その結果をスクリーンショットとして保存するサンプルアプリケーションです。Docker Compose を使用して、アプリケーション実行環境、Selenium Standalone Edge 環境、およびテスト用プロキシ (mitmproxy) を構築・実行します。
+このプロジェクトは、Python と Selenium (Microsoft Edge) を使用し、ファイルから読み込んだプロキシサーバーリストを経由して、指定されたウェブサイト（デフォルトはIPアドレス確認サイト）にアクセスし、各プロキシごとのブラウザ画面をスクリーンショットとして保存するツールです。
 
-主な目的は、Selenium の `EdgeOptions` を介してプロキシを設定し、各プロキシ経由での接続結果（IPアドレス確認サイトの表示）を視覚的に確認する基本的な仕組みを提供することです。
+Docker Compose を利用して、Pythonアプリケーション、Selenium WebDriver (Edge)、テスト用プロキシ (mitmproxy) を含んだ実行環境を構築・実行します。
 
-## 機能
+主な目的は、Selenium の `EdgeOptions` を介してプロキシを設定する基本的な使い方を示し、複数のプロキシでの接続結果を視覚的に確認することです。TDD、DDD、クリーンアーキテクチャの原則を意識して開発されました。
 
-* プロキシリストをファイル (`proxies.txt` など) から読み込み
-* リスト内の各プロキシを順番に使用してブラウザを起動
-* 指定されたURL (デフォルトは IP 確認サイト) にアクセス
-* 各プロキシ使用時のブラウザ画面をスクリーンショットとして保存
-* Docker Compose による環境構築 (Pythonアプリ, Selenium Edge, mitmproxy)
-* 基本的なエラーハンドリング（特定のプロキシ失敗時に処理を続行）
-* ロギング機能 (ファイルおよびコンソール)
+## 2. 前提条件
 
-## 要件
+* **Docker:** [インストール手順](https://docs.docker.com/get-docker/)
+* **Docker Compose:** (Docker Desktop には通常含まれています) [インストール手順](https://docs.docker.com/compose/install/)
 
-* Docker
-* Docker Compose
+## 3. セットアップ手順
 
-## セットアップ手順
-
-1.  **リポジトリのクローン (もし Git 管理している場合):**
+1.  **リポジトリのクローン (任意):**
     ```bash
     git clone <リポジトリのURL>
     cd <リポジトリ名>
     ```
 
 2.  **`.env` ファイルの作成:**
-    プロジェクトルートに `.env` ファイルを作成し、Docker Compose で使用する環境変数を定義します。最低限、以下の変数が必要になる可能性があります (`docker-compose.yml` の `${...}` 部分に合わせてください)。
+    プロジェクトルート（`docker-compose.yml` と同じ場所）に `.env` ファイルを作成し、環境変数を設定します。以下は例です。`docker-compose.yml` 内の `${...}` 変数に合わせて調整してください。
+    *(リポジトリに `.env.example` ファイルがあれば、それをコピーして編集するのがおすすめです。)*
     ```dotenv
     # .env ファイルの例
     PROJECT_NAME=PyProxyRot
     CONTAINER_VOLUME=/app
-    SELENIUM_HUB=http://selenium:4444/wd/hub
-    HUB_PORT=4444
-    BROWSER_PORT=7900 # VNCを使わないなら不要な場合あり
-    SELENIUM_SHARED=/dev/shm # または適切な共有パス
-    SELENIUM_DOWNLOADS=/app/downloads # 例: コンテナ内のダウンロードパス
-    LOCAL_DOWNLOADS=./downloads       # 例: ホスト側のダウンロードパス
-    PROXY_PASSWORD=mysecret          # mitmproxy の Web UI 用パスワード (任意)
-    # SUPERVISOR_USERNAME=user       # seleniumコンテナのSupervisor用 (Dockerfileによる)
-    # SUPERVISOR_PASSWORD=pass       # seleniumコンテナのSupervisor用 (Dockerfileによる)
-    # LOG_LEVEL=DEBUG                # ログレベル (任意)
-    # APP_LOGGER_NAME=my_app_log     # ロガー名 (任意)
+
+    # Selenium Hub / VNC ポート (docker-compose.yml のデフォルト値と同じなら定義不要)
+    # HUB_PORT=4444
+    # BROWSER_PORT=7900
+
+    # ボリュームパス (docker-compose.yml のデフォルト値と同じなら定義不要)
+    # SELENIUM_SHARED=/dev/shm
+    # SELENIUM_DOWNLOADS=/app/downloads
+    # LOCAL_DOWNLOADS=./downloads
+
+    # プロキシ (mitmproxy) の Web UI パスワード (docker-compose.yml で設定したもの)
+    PROXY_PASSWORD=mysecret
+
+    # Supervisor 認証情報 (selenium コンテナの Dockerfile による)
+    # SUPERVISOR_USERNAME=user
+    # SUPERVISOR_PASSWORD=pass
+
+    # アプリケーションのデフォルト設定 (任意)
+    # LOG_LEVEL=DEBUG
+    # APP_LOGGER_NAME=my_app_log
+    # SELENIUM_HUB=http://selenium:4444/wd/hub
     ```
-    ※ `docker-compose.yml` でデフォルト値 (`:-...`) が設定されている変数は、`.env` で定義しなくても動作します。
 
 3.  **`proxies.txt` ファイルの作成:**
-    プロジェクトルートに `proxies.txt` という名前のファイルを作成し、使用したいプロキシサーバーのリストを記述します。**注意点として、現在の実装では以下の規約が必要です。**
-    * **1行目:** 必ず Docker Compose で起動するローカルプロキシ (`proxy-server:8080` など) を記述してください。これは内部的な初期化/ウォームアップに使用され、スクリーンショットはスキップされます。
-    * **2行目以降:** IPアドレスを確認したい外部プロキシなどを `ホスト名:ポート番号` または `ホスト名,ポート番号` の形式で記述します。
+    プロジェクトルートに `proxies.txt` という名前（または `main.py` 実行時に `-f` オプションで指定する名前）のファイルを作成し、使用するプロキシリストを記述します。
+    * **書式:** 1行に1プロキシを `ホスト名:ポート番号` または `ホスト名,ポート番号` で記述。
     * `#` で始まる行と空行は無視されます。
+    * **★重要ルール★:** **1行目には必ず `proxy-server:8080`** (docker-compose で起動するローカルプロキシのサービス名とポート) を記述してください。これは内部的な初期化に使用され、スクリーンショットはスキップされます。実際にテストしたい外部プロキシは2行目以降に記述します。
 
     ```
     # proxies.txt の例
     # 1行目は docker-compose のプロキシサービスを指定
     proxy-server:8080
 
-    # --- ここから実際に確認したいプロキシ ---
+    # --- ここからが実際にスクショを撮るプロキシ ---
     113.160.132.195:8080
     203.99.240.179:80
-    # [public-proxy.com:3128](https://www.google.com/search?q=public-proxy.com:3128)
+    # public-proxy.com:3128
     # another.proxy,8888
     # ...
     ```
 
 4.  **`screenshots` ディレクトリの作成:**
-    プロジェクトルートに、スクリーンショットを保存するためのディレクトリを作成します。
+    プロジェクトルートにスクリーンショット保存用のディレクトリを作成します。
     ```bash
     mkdir screenshots
     ```
-    （もし `docker-compose.yml` の `volumes` 設定で `./screenshots` 以外を指定した場合は、そのディレクトリを作成してください。）
 
-5.  **Docker イメージのビルド:**
-    `mitmproxy` の証明書を `selenium` イメージにコピーする必要があるため、段階的にビルド・起動します。
+5.  **Docker イメージのビルドと初回起動 (証明書生成のため):**
+    `selenium` イメージに `mitmproxy` の証明書を組み込むため、以下の手順で実行します。
     ```bash
-    # 1. proxy-server を起動して証明書を生成させる
+    # 手順1: proxy-server を起動して証明書を生成させる (.edge/.mitmproxy/ 以下に)
     docker compose up -d --no-deps --force-recreate proxy-server
-    # (少し待って ./PyProxyRot/.edge/.mitmproxy/mitmproxy-ca-cert.pem ができるか確認)
-    # docker compose stop proxy-server # 停止してもOK
+    # (少し待って証明書ファイル mitmproxy-ca-cert.pem が生成されたか確認)
+    docker compose stop proxy-server # 確認後、停止してもOK
 
-    # 2. selenium イメージをビルド (証明書コピーを含む)
+    # 手順2: selenium イメージをビルド (証明書コピーを含む)
     docker compose build selenium
 
-    # 3. 必要であれば py-proxy-rotator もビルド
+    # 手順3: py-proxy-rotator イメージをビルド
     docker compose build py-proxy-rotator
-    ```
 
-## アプリケーションの実行
+    # 手順4: 全体を起動 (任意)
+    # docker compose up -d
+    ```
+    `docker compose build selenium` でエラーが出ないことを確認してください。
+
+## 4. アプリケーションの実行
 
 1.  Docker Compose で全サービスを起動します（バックグラウンド実行の例）。
     ```bash
@@ -98,40 +103,89 @@
     ```
     `docker compose ps` で全コンテナ (`py-proxy-rotator`, `selenium`, `proxy-server`) が `Up` 状態であることを確認します。
 
-2.  `main.py` を実行します。
-    * **デフォルト (`proxies.txt`, `https://ipinfo.io/what-is-my-ip`) で実行:**
-        ```bash
-        docker compose run --rm py-proxy-rotator python main.py
-        ```
-    * **プロキシファイルを指定して実行:**
-        ```bash
-        # 例: my_proxies.txt を使う場合 (ファイルがマウントされている必要あり)
-        docker compose run --rm py-proxy-rotator python main.py -f my_proxies.csv
-        ```
-    * **ログレベルやターゲットURLを変更する場合:**
-        ```bash
-        docker compose run --rm py-proxy-rotator python main.py -f proxies.txt -l DEBUG -u [http://httpbin.org/ip](http://httpbin.org/ip)
-        ```
-
-3.  **結果の確認:**
-    * コンソールに処理のログが表示されます。
-    * 実行完了後、ホストマシンの `./screenshots` ディレクトリ内に、プロキシごとに `ip_check_proxy_インデックス_ホスト_ポート.png` という名前でスクリーンショットが保存されます（プロキシ#0 を除く）。
-    * 各画像を開き、表示されているIPアドレスを確認してください。
-    * `mitmproxy` の Web UI (`http://localhost:8081`) で通信の詳細を確認できます（パスワードは `.env` または `docker-compose.yml` で設定したもの）。
-
-## テストの実行
-
-1.  **ユニットテスト:**
-    コンテナを起動せずに（あるいは起動したままでも）実行できます。
+2.  `main.py` を実行してスクリーンショットを取得します。
     ```bash
-    # アプリケーションの全ユニットテストを実行
-    docker compose run --rm py-proxy-rotator python -m pytest tests/application tests/adapters tests/config tests/domain
-    # または単に
-    # docker compose run --rm py-proxy-rotator python -m pytest tests
+    # デフォルトの proxies.txt を使用する場合
+    docker compose run --rm py-proxy-rotator python main.py
+
+    # 別のプロキシファイルを指定する場合
+    # docker compose run --rm py-proxy-rotator python main.py -f my_proxies.txt
+
+    # ログレベルを DEBUG に変更する場合
+    # docker compose run --rm py-proxy-rotator python main.py -l DEBUG
+
+    # 確認するURLを変更する場合
+    # docker compose run --rm py-proxy-rotator python main.py -u [http://httpbin.org/ip](http://httpbin.org/ip)
     ```
 
-2.  **結合テスト:**
-    Docker Compose 環境 (`py-proxy-rotator`, `selenium`, `proxy-server`) が**起動している必要**があります。
+### 出力について
+
+* **コンソール:** 実行中のログが表示され、最後に処理結果のサマリー（成功/失敗数）が表示されます。
+* **ログファイル:** コンテナ内の `/app/app.log` (デフォルト) にログが記録されます。`docker-compose.yml` でホストの `./logs` ディレクトリにマウント設定をしていれば、`./logs/app.log` で確認できます。
+* **スクリーンショット:** 処理が成功したプロキシ（リストの2番目以降）について、ホストの `./screenshots` ディレクトリ内に `ip_check_proxy_インデックス_ホスト_ポート.png` という名前で画像ファイルが保存されます。
+
+## 5. `ProxiedEdgeBrowser` クラスの基本的な使い方
+
+このプロジェクトの中心となる `ProxiedEdgeBrowser` クラスは、以下のように Python スクリプトから利用できます。
+
+```python
+# 使い方サンプル
+
+from src.domain.proxy_info import ProxyInfo
+from src.application.proxy_provider import ListProxyProvider
+from src.application.proxy_selector import ProxySelector
+from src.adapters.edge_option_factory import EdgeOptionFactory
+from src.application.proxied_edge_browser import ProxiedEdgeBrowser
+from src.config.logging_config import setup_logging
+
+# 0. ロギング設定 (任意)
+setup_logging()
+
+# 1. 依存関係の準備
+# プロキシリストは ListProxyProvider 経由で渡す
+proxy_list = [
+    ProxyInfo(host="proxy-server", port=8080), # 最初のプロキシ (必須)
+    ProxyInfo(host="[external.proxy.com](https://www.google.com/search?q=external.proxy.com)", port=3128)
+]
+provider = ListProxyProvider(proxy_list)
+selector = ProxySelector(provider)
+factory = EdgeOptionFactory() # --ignore-certificate-errors を含む実装
+selenium_hub_url = "http://selenium:4444/wd/hub" # Docker Compose環境の場合
+
+# 2. ProxiedEdgeBrowser のインスタンス化 (with文推奨)
+try:
+    with ProxiedEdgeBrowser(selector, factory, selenium_hub_url) as browser:
+        # 3. ブラウザを起動 (リストのインデックスを指定)
+        # 最初のプロキシ (index=0) は初期化用、スクショはスキップされる想定
+        browser.start_browser(proxy_index=0)
+        print("最初のプロキシでブラウザ起動完了 (スクショなし)")
+        # 最初のブラウザは with を抜けるときに閉じられる
+
+    # 2番目のプロキシで再度実行
+    with ProxiedEdgeBrowser(selector, factory, selenium_hub_url) as browser:
+        browser.start_browser(proxy_index=1)
+
+        # 4. 操作 (例: スクリーンショット)
+        target_url = "[https://ipinfo.io/what-is-my-ip](https://ipinfo.io/what-is-my-ip)"
+        save_path = "/app/screenshots/example_screenshot.png" # コンテナ内パス
+        browser.take_screenshot(target_url, save_path)
+        print(f"プロキシ #1 でスクリーンショットを {save_path} に保存しました。")
+
+except Exception as e:
+    print(f"エラーが発生しました: {e}")
+
+# 'with' ブロックを抜けると自動的に browser.close_browser() が呼ばれる
+```
+
+## 6. テストの実行
+
+ユニットテストと結合テストが用意されています。
+
+* **ユニットテスト:** 個々のコンポーネントをテストします。
+    ```bash
+    docker compose run --rm py-proxy-rotator python -m pytest tests
+    ```
+* **結合テスト:** Docker Compose 環境全体を起動してテストします。
     ```bash
     # まずコンテナを起動
     docker compose up -d
@@ -140,7 +194,7 @@
     docker compose run --rm py-proxy-rotator python -m pytest -m integration tests/integration
     ```
 
-## プロジェクト構成 (主要部分)
+## 7. プロジェクト構成 (主要部分)
 
 ```
 .
@@ -153,21 +207,21 @@
 ├── README.md              # このファイル
 ├── screenshots/           # スクリーンショット保存先 (要作成)
 ├── src/                   # ソースコード
-│   ├── adapters/          # アダプター層 (EdgeOptionFactoryなど)
-│   ├── application/       # アプリケーション層 (ProxiedEdgeBrowser, ProxySelectorなど)
-│   ├── config/            # 設定関連 (logging_configなど)
-│   └── domain/            # ドメイン層 (ProxyInfoなど)
+│   ├── adapters/
+│   ├── application/
+│   ├── config/
+│   └── domain/
 └── tests/                 # テストコード
     ├── application/
     ├── adapters/
     ├── config/
     ├── domain/
-    └── integration/       # 結合テスト
-    └── conftest.py        # pytest フィクスチャ定義
+    ├── integration/
+    └── conftest.py
 ```
-(注: `Dockerfile` や `requirements.txt` / `pyproject.toml` の場所は、あなたの `docker-compose.yml` の `build.context` 設定によります)
+(注: `Dockerfile` や `pyproject.toml` の場所はプロジェクト構成によります)
 
-## 既知の問題点・回避策
+## 8. 既知の問題点・回避策
 
-* **HTTPS証明書エラー:** プロキシ (`mitmproxy`) 経由でHTTPSサイトにアクセスする際、ブラウザで証明書エラーが発生します。現在の実装では、これを回避するために Selenium の `EdgeOptions` で `--ignore-certificate-errors` を指定しています。これはテスト目的の回避策であり、セキュリティリスクを伴います。根本解決には Selenium コンテナへの `mitmproxy` CA証明書の適切なインストールが必要です（Dockerfileでの手順は試みましたが、EdgeブラウザがOSストアを認識しない可能性があり、完全には解決していません）。
-* **最初のプロキシの挙動:** リストの最初のプロキシを使用した場合に、指定したプロキシ設定が有効にならない現象が確認されました。回避策として、`proxies.txt` の1行目には必ず動作確認済みのローカルプロキシ (`proxy-server:8080`) を記述し、そのプロキシでのスクリーンショット処理はスキップするようにしています。
+* **HTTPS証明書エラー回避:** 現在の実装では、プロキシ経由でのHTTPSアクセス時の証明書エラーを回避するため、Edgeの起動オプションに `--ignore-certificate-errors` を追加しています。これはテスト目的の措置であり、セキュリティリスクが伴います。
+* **最初のプロキシのスキップ:** 初回起動時にプロキシ設定が有効にならない現象への回避策として、`proxies.txt` の1行目には必ず `proxy-server:8080` を記述し、そのプロキシでのスクリーンショット取得はスキップする運用としています。
