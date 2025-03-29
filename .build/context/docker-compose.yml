@@ -1,28 +1,61 @@
 services:
-  service-name:
+  py-proxy-rotator:
     build:
       context: ./${PROJECT_NAME}/.build
       dockerfile: Dockerfile
     image: ${PROJECT_NAME}_image
     volumes:
-      - ./${PROJECT_NAME}:${CONTAINER_VOLUME}
-    working_dir: ${CONTAINER_VOLUME}
+      - ./${PROJECT_NAME}:${CONTAINER_VOLUME:-/app}
+      - ./screenshots:/app/screenshots
+    working_dir: ${CONTAINER_VOLUME:-/app}
     environment:
       - PROJECT_NAME=${PROJECT_NAME}
-      - PYTHONPATH=${CONTAINER_VOLUME}
       - SELENIUM_HUB=${SELENIUM_HUB:-http://selenium:4444/wd/hub}
     # command: ["bash", "run.sh"]
     stdin_open: true
     tty: true
-    
+    networks:
+      - selenium_net
+    depends_on:
+      - selenium
+      - proxy-server
+
   selenium:
-    build: 
+    build:
       context: ./${PROJECT_NAME}/.edge
       dockerfile: Dockerfile
     image: ${PROJECT_NAME}_edge_image
+    shm_size: '2g'
     volumes:
-      - ${SELENIUM_SHARED}:${SELENIUM_SHARED}
-      - ${LOCAL_DOWNLOADS}:${SELENIUM_DOWNLOADS}
+      - ${SELENIUM_SHARED:-/dev/shm}:${SELENIUM_SHARED:-/dev/shm}
+      - ${LOCAL_DOWNLOADS:-/dev/shm}:${SELENIUM_DOWNLOADS:-/dev/shm}
+      # - ./${PROJECT_NAME}/.edge/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:ro
+      # - ./${PROJECT_NAME}/.edge/selenium.conf:/etc/supervisor/conf.d/selenium.conf:ro  # 追加
+      # - ./${PROJECT_NAME}/.edge/edge-cleanup.conf:/etc/supervisor/conf.d/edge-cleanup.conf:ro # 追加
+    environment:
+      # - SE_OPTS=-debug  # デバッグモードは一旦コメントアウト (必要なら有効化)
+      - SUPERVISOR_USERNAME=${SUPERVISOR_USERNAME}  # .env から読み込む
+      - SUPERVISOR_PASSWORD=${SUPERVISOR_PASSWORD}  # .env から読み込む
     ports:
-      - ${HUB_PORT}:${HUB_PORT}
-      - ${BROWSER_PORT}:${BROWSER_PORT}
+      - ${HUB_PORT:-4444}:${HUB_PORT:-4444}
+      - ${BROWSER_PORT:-7900}:${BROWSER_PORT:-7900}
+    networks:
+      - selenium_net
+    depends_on:
+      - proxy-server
+
+  proxy-server:
+    # docker compose up -d --no-deps --force-recreate proxy-server で先行して起動する。
+    image: mitmproxy/mitmproxy
+    container_name: mitmproxy-for-test
+    command: mitmweb --web-host 0.0.0.0 --web-port 8081 --listen-host 0.0.0.0 --listen-port 8080 --set block_global=false --set web_password=${PROXY_PASSWORD:-mysecret}
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./${PROJECT_NAME}/.edge/.mitmproxy:/home/mitmproxy/.mitmproxy      
+    networks:
+      - selenium_net
+
+networks:
+  selenium_net:
+    driver: bridge
