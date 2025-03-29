@@ -180,9 +180,7 @@ class ProxiedEdgeBrowser:
             self._logger.error(
                 f"An unexpected error occurred during screenshot process: {e}", exc_info=True)
             raise
-        # ★★★ 修正ここまで ★★★
 
-    # --- close_browser, __enter__, __exit__ は変更なし ---
     def close_browser(self) -> None:
         """
         現在アクティブなブラウザセッションを閉じ、WebDriverを終了します。
@@ -190,17 +188,21 @@ class ProxiedEdgeBrowser:
         if self._driver is not None:
             self._logger.info("Closing browser session...")
             try:
-                self._driver.quit()
+                self._driver.quit()  # WebDriver セッションを終了し、ブラウザを閉じる
                 self._logger.info("Browser session closed successfully.")
             except Exception as e:
+                # quit() が失敗してもエラーログは出すが、例外は送出せず、後続処理を行う
                 self._logger.error(
                     f"Error occurred during browser quit: {e}", exc_info=True)
             finally:
+                # 成功・失敗に関わらず WebDriver インスタンスへの参照を解除
                 self._driver = None
         else:
             self._logger.debug("No active browser session to close.")
+        # pass # ← 不要なので削除
 
     def __enter__(self) -> 'ProxiedEdgeBrowser':
+        """'with' ステートメントで使用可能にします。self を返します。"""
         self._logger.debug("Entering ProxiedEdgeBrowser context.")
         return self
 
@@ -210,9 +212,7 @@ class ProxiedEdgeBrowser:
         exc_val: BaseException | None,
         exc_tb: TracebackType | None
     ) -> None:
+        """'with' ブロック終了時にブラウザが確実に閉じられるようにします。"""
         self._logger.debug(
             "Exiting ProxiedEdgeBrowser context, ensuring browser closure.")
-        self.close_browser()
-
-
-# __exit__ の型ヒントのために import
+        self.close_browser()  # __exit__ で close_browser を呼び出す
