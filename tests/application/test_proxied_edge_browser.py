@@ -1,13 +1,11 @@
-# tests/application/test_proxied_edge_browser.py
+# tests/application/test_proxied_edge_browser.py (新しい型ヒント記法)
 import pytest
 import logging
-from unittest.mock import MagicMock  # mocker だけでなく MagicMock も直接使える
-from typing import List, Optional  # <<< この行を追加または確認
-from types import TracebackType  # __exit__で使う場合 (もし追加していれば)
-
+from unittest.mock import MagicMock
+# from typing import List, Optional # ← 不要になる
+from types import TracebackType  # __exit__ で必要なら (今回は使っていない)
 
 # モック対象のクラスとテスト対象クラスをインポート
-# 実際の依存関係の解決は pytest が行う (PYTHONPATH設定や __init__.py が適切なら)
 from src.application.proxy_selector import ProxySelector
 from src.adapters.edge_option_factory import EdgeOptionFactory
 from src.application.proxied_edge_browser import ProxiedEdgeBrowser
@@ -20,7 +18,6 @@ from src.domain.proxy_info import ProxyInfo  # ダミーデータ作成に必要
 def test_proxied_edge_browser_instantiation(mocker):
     """ProxiedEdgeBrowser がモック化された依存性でインスタンス化できることをテスト"""
     # Arrange
-    # 依存コンポーネントのモックを作成
     mock_selector = mocker.Mock(spec=ProxySelector)
     mock_factory = mocker.Mock(spec=EdgeOptionFactory)
     mock_logger = mocker.Mock(spec=logging.Logger)
@@ -39,12 +36,11 @@ def test_proxied_edge_browser_instantiation(mocker):
 
     # Assert
     assert isinstance(browser_manager, ProxiedEdgeBrowser)
-    # 内部属性に依存性が保存されているか確認 (_ はプライベート属性の慣習)
     assert browser_manager._selector is mock_selector
     assert browser_manager._option_factory is mock_factory
     assert browser_manager._command_executor == dummy_url
     assert browser_manager._logger is mock_logger
-    assert browser_manager._driver is None  # 初期状態では driver は None
+    assert browser_manager._driver is None
 
 
 def test_proxied_edge_browser_instantiation_with_default_logger(mocker):
@@ -59,11 +55,9 @@ def test_proxied_edge_browser_instantiation_with_default_logger(mocker):
         proxy_selector=mock_selector,
         option_factory=mock_factory,
         command_executor=dummy_url
-        # logger 引数を省略
     )
 
     # Assert
-    # デフォルトロガーが取得されているか型で確認
     assert isinstance(browser_manager._logger, logging.Logger)
 
 
@@ -94,21 +88,21 @@ def test_proxied_edge_browser_raises_value_error_for_empty_executor(mocker):
 
     # Act & Assert
     with pytest.raises(ValueError, match="command_executor URL は空にできず、文字列である必要があります"):
-        ProxiedEdgeBrowser(mock_selector, mock_factory, "")  # 空文字列
+        ProxiedEdgeBrowser(mock_selector, mock_factory, "")
 
     with pytest.raises(ValueError, match="command_executor URL は空にできず、文字列である必要があります"):
-        ProxiedEdgeBrowser(mock_selector, mock_factory,
-                           None)  # type: ignore # None
+        ProxiedEdgeBrowser(mock_selector, mock_factory, None)  # type: ignore
 
 
-def test_proxied_edge_browser_has_method_stubs(mocker):
+def test_proxied_edge_browser_has_method_stubs(mocker):  # mocker 引数を戻しました
     """要求されたメソッドスタブが存在し、呼び出し可能であることを確認"""
     # Arrange
     # コンストラクタの型チェックをパスするための具体的なモック/ダミー
-    class MockProxyProvider(ProxyProvider):  # ProxyProviderを継承したダミークラス
-        def get_proxies(self) -> List[ProxyInfo]: return []
-    mock_selector = ProxySelector(MockProxyProvider())  # 実際のクラスを使う (依存性が必要)
-    mock_factory = EdgeOptionFactory()                 # 実際のクラスを使う
+    class MockProxyProvider(ProxyProvider):
+        # ★ List を list に変更 ★
+        def get_proxies(self) -> list[ProxyInfo]: return []  # ProxyInfo は必要
+    mock_selector = ProxySelector(MockProxyProvider())
+    mock_factory = EdgeOptionFactory()
     dummy_url = "http://fake-selenium-hub:4444/wd/hub"
 
     browser_manager = ProxiedEdgeBrowser(
