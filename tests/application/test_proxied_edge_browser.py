@@ -1,4 +1,4 @@
-# tests/application/test_proxied_edge_browser.py (修正・整理版)
+# tests/application/test_proxied_edge_browser.py (完全版・修正済み)
 
 import pytest
 import logging
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from selenium.common.exceptions import WebDriverException
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
-# from typing import List # ← list[...] を使うので不要になる
+from pathlib import Path  # mkdir のモックテストで必要
 
 # 必要なクラス/インターフェースをインポート
 from src.domain.proxy_info import ProxyInfo
@@ -35,7 +35,7 @@ def test_proxied_edge_browser_instantiation(mocker):
             logger=mock_logger
         )
     except Exception as e:
-        pytest.fail(f"Instantiation failed unexpectedly: {e}")  # メッセージを英語に
+        pytest.fail(f"Instantiation failed unexpectedly: {e}")
 
     # Assert
     assert isinstance(browser_manager, ProxiedEdgeBrowser)
@@ -74,7 +74,6 @@ def test_proxied_edge_browser_raises_type_error_for_invalid_dependencies(mocker)
     invalid_factory = "not a factory"
 
     # Act & Assert
-    # エラーメッセージも実装コードに合わせて英語でチェック
     with pytest.raises(TypeError, match="proxy_selector must be an instance of ProxySelector"):
         ProxiedEdgeBrowser(invalid_selector, mock_factory,
                            dummy_url)  # type: ignore
@@ -91,7 +90,6 @@ def test_proxied_edge_browser_raises_value_error_for_empty_executor(mocker):
     mock_factory = mocker.Mock(spec=EdgeOptionFactory)
 
     # Act & Assert
-    # エラーメッセージも実装コードに合わせて英語でチェック
     with pytest.raises(ValueError, match="command_executor URL cannot be empty and must be a string"):
         ProxiedEdgeBrowser(mock_selector, mock_factory, "")
 
@@ -103,8 +101,7 @@ def test_proxied_edge_browser_has_method_stubs(mocker):
     """要求されたメソッドスタブが存在し、呼び出し可能であることを確認"""
     # Arrange
     class MockProxyProvider(ProxyProvider):
-        # ★ 型ヒントを list に変更 ★
-        def get_proxies(self) -> list[ProxyInfo]: return []
+        def get_proxies(self) -> list[ProxyInfo]: return []  # list[...] 記法を使用
     mock_selector = ProxySelector(MockProxyProvider())
     mock_factory = EdgeOptionFactory()
     dummy_url = "http://fake-selenium-hub:4444/wd/hub"
@@ -124,7 +121,7 @@ def test_proxied_edge_browser_has_method_stubs(mocker):
     assert hasattr(browser_manager, '__exit__')
     assert callable(browser_manager.__exit__)
 
-# --- start_browser のユニットテスト ---
+# --- start_browser のユニットテスト (Issue #9) ---
 
 
 @pytest.fixture
@@ -146,13 +143,16 @@ def browser_manager_mocks(mocker):
         command_executor=dummy_url,
         logger=mock_logger
     )
+    # webdriver.Remote をモック化
     mock_remote_class = mocker.patch(
         'src.application.proxied_edge_browser.webdriver.Remote')
     mock_driver_instance = mocker.Mock(spec=RemoteWebDriver)
     mock_driver_instance.session_id = "mock_session_123"
     mock_remote_class.return_value = mock_driver_instance
+    # close_browser もモック化
     manager.close_browser = mocker.Mock()
 
+    # ★ フィクスチャがタプルを返すことを確認 ★
     return manager, mock_selector, mock_factory, mock_logger, mock_remote_class, mock_options
 
 
@@ -168,7 +168,7 @@ def test_start_browser_success(browser_manager_mocks):
     manager.start_browser(proxy_index)
 
     # Assert
-    manager.close_browser.assert_not_called()  # 既存ドライバがなければ呼ばれない
+    manager.close_browser.assert_not_called()
     mock_selector.select_proxy.assert_called_once_with(proxy_index)
     mock_factory.create_options.assert_called_once_with(expected_proxy_info)
     mock_remote_class.assert_called_once_with(
@@ -177,26 +177,24 @@ def test_start_browser_success(browser_manager_mocks):
     )
     assert manager._driver is mock_remote_class.return_value
     assert manager._driver.session_id == "mock_session_123"
-    # ★ ログアサーション (英語) ★
     mock_logger.info.assert_any_call(
         f"Attempting to start browser using proxy index {proxy_index}...")
     mock_logger.info.assert_any_call(
         f"Browser session started successfully. Session ID: mock_session_123")
 
 
-# ★ mocker 引数を追加 ★
+# mocker引数を追加
 def test_start_browser_closes_existing_session(browser_manager_mocks, mocker):
     """既存セッションがある場合に close_browser が呼ばれることをテスト"""
     # Arrange
     manager, _, _, mock_logger, mock_remote_class, _ = browser_manager_mocks
-    manager._driver = mocker.Mock(spec=RemoteWebDriver)  # ★ mocker を使用 ★
+    manager._driver = mocker.Mock(spec=RemoteWebDriver)  # mocker を使用
 
     # Act
     manager.start_browser(0)
 
     # Assert
     manager.close_browser.assert_called_once()
-    # ★ ログアサーション (英語) ★
     mock_logger.warning.assert_called_once_with(
         "An active browser session exists. Closing it before starting a new one.")
     mock_remote_class.assert_called_once()
@@ -219,7 +217,6 @@ def test_start_browser_handles_select_proxy_index_error(browser_manager_mocks):
     assert manager._driver is None
     mock_logger.error.assert_called_once()
     args, kwargs = mock_logger.error.call_args
-    # ★ ログアサーション (英語) ★
     assert "Failed to prepare for browser start" in args[0]
     assert kwargs.get("exc_info") is True
 
@@ -239,7 +236,6 @@ def test_start_browser_handles_create_options_type_error(browser_manager_mocks):
     assert manager._driver is None
     mock_logger.error.assert_called_once()
     args, kwargs = mock_logger.error.call_args
-    # ★ ログアサーション (英語) ★
     assert "Failed to prepare for browser start" in args[0]
     assert kwargs.get("exc_info") is True
 
@@ -259,6 +255,155 @@ def test_start_browser_handles_webdriver_exception(browser_manager_mocks):
     assert manager._driver is None
     mock_logger.error.assert_called_once()
     args, kwargs = mock_logger.error.call_args
-    # ★ ログアサーション (英語) ★
     assert "Failed to start WebDriver session" in args[0]
+    assert kwargs.get("exc_info") is True
+
+# --- take_screenshot のユニットテスト (Issue #10) ---
+
+
+def test_take_screenshot_success(browser_manager_mocks, mocker):
+    """take_screenshot が正常に実行されるケースをテスト"""
+    # Arrange
+    manager, _, _, mock_logger, _, _ = browser_manager_mocks
+    mock_driver = mocker.Mock(spec=RemoteWebDriver)
+    manager._driver = mock_driver  # ブラウザ起動済み状態
+    test_url = "https://example.com"
+    test_save_path = "/app/screenshots/test_success.png"
+
+    # pathlib.Path をモック化 (ディレクトリは存在すると仮定)
+    mock_path_instance = mocker.Mock(spec=Path)
+    mock_path_instance.parent.exists.return_value = True
+    mocker.patch('src.application.proxied_edge_browser.Path',
+                 return_value=mock_path_instance)
+
+    # Act
+    manager.take_screenshot(test_url, test_save_path)
+
+    # Assert
+    mock_path_instance.parent.exists.assert_called_once()
+    mock_path_instance.parent.mkdir.assert_not_called()  # mkdir は呼ばれない
+    mock_driver.get.assert_called_once_with(test_url)
+    mock_driver.save_screenshot.assert_called_once_with(test_save_path)
+    mock_logger.info.assert_any_call(
+        f"Screenshot saved successfully to '{test_save_path}'.")
+
+
+def test_take_screenshot_creates_directory(browser_manager_mocks, mocker):
+    """take_screenshot が保存先ディレクトリを作成するケースをテスト"""
+    # Arrange
+    manager, _, _, mock_logger, _, _ = browser_manager_mocks
+    mock_driver = mocker.Mock(spec=RemoteWebDriver)
+    manager._driver = mock_driver
+    test_url = "https://example.com"
+    test_save_path = "/app/screenshots/new_dir/test_create.png"
+
+    mock_path_instance = mocker.Mock(spec=Path)
+    mock_path_instance.parent.exists.return_value = False  # ディレクトリが存在しない
+    mocker.patch('src.application.proxied_edge_browser.Path',
+                 return_value=mock_path_instance)
+
+    # Act
+    manager.take_screenshot(test_url, test_save_path)
+
+    # Assert
+    mock_path_instance.parent.exists.assert_called_once()
+    mock_path_instance.parent.mkdir.assert_called_once_with(
+        parents=True, exist_ok=True)  # mkdir が呼ばれる
+    mock_driver.get.assert_called_once_with(test_url)
+    mock_driver.save_screenshot.assert_called_once_with(test_save_path)
+
+
+def test_take_screenshot_raises_runtime_error_if_not_started(browser_manager_mocks):
+    """ブラウザ未起動時に RuntimeError が発生することをテスト"""
+    # Arrange
+    manager, _, _, mock_logger, _, _ = browser_manager_mocks
+    manager._driver = None  # ブラウザ未起動状態
+
+    # Act & Assert
+    with pytest.raises(RuntimeError, match="Browser not started"):
+        manager.take_screenshot("https://example.com",
+                                "/app/screenshots/test.png")
+    mock_logger.error.assert_called_once_with(
+        "Browser not started when attempting to take screenshot.")
+
+
+def test_take_screenshot_handles_get_exception(browser_manager_mocks, mocker):
+    """driver.get で WebDriverException が発生した場合の処理をテスト"""
+    # Arrange
+    manager, _, _, mock_logger, _, _ = browser_manager_mocks
+    mock_driver = mocker.Mock(spec=RemoteWebDriver)
+    manager._driver = mock_driver
+    test_url = "invalid-url"
+    test_save_path = "/app/screenshots/test_get_fail.png"
+    mock_driver.get.side_effect = WebDriverException("Failed to navigate")
+
+    # Path のモック化は不要 (TypeError回避のため削除済み)
+
+    # Act & Assert
+    with pytest.raises(WebDriverException, match="Failed to navigate"):
+        manager.take_screenshot(test_url, test_save_path)
+
+    # Assert
+    mock_driver.get.assert_called_once_with(test_url)
+    mock_driver.save_screenshot.assert_not_called()  # スクショ保存は呼ばれない
+    mock_logger.error.assert_called_once()
+    args, kwargs = mock_logger.error.call_args
+    assert "WebDriverException during screenshot process" in args[0]
+    assert kwargs.get("exc_info") is True
+
+
+def test_take_screenshot_handles_save_exception(browser_manager_mocks, mocker):
+    """driver.save_screenshot で WebDriverException が発生した場合の処理をテスト"""
+    # Arrange
+    manager, _, _, mock_logger, _, _ = browser_manager_mocks
+    mock_driver = mocker.Mock(spec=RemoteWebDriver)
+    manager._driver = mock_driver
+    test_url = "https://example.com"
+    test_save_path = "/invalid/path/test_save_fail.png"
+    mock_driver.save_screenshot.side_effect = WebDriverException(
+        "Failed to save")
+
+    # Path のモック化は不要 (TypeError回避のため削除済み)
+
+    # Act & Assert
+    with pytest.raises(WebDriverException, match="Failed to save"):
+        manager.take_screenshot(test_url, test_save_path)
+
+    # Assert
+    mock_driver.get.assert_called_once_with(test_url)  # get は呼ばれる
+    mock_driver.save_screenshot.assert_called_once_with(
+        test_save_path)  # save も呼ばれる
+    mock_logger.error.assert_called_once()
+    args, kwargs = mock_logger.error.call_args
+    assert "WebDriverException during screenshot process" in args[0]
+    assert kwargs.get("exc_info") is True
+
+
+def test_take_screenshot_handles_mkdir_exception(browser_manager_mocks, mocker):
+    """ディレクトリ作成で OSError が発生した場合の処理をテスト"""
+    # Arrange
+    manager, _, _, mock_logger, _, _ = browser_manager_mocks
+    mock_driver = mocker.Mock(spec=RemoteWebDriver)
+    manager._driver = mock_driver
+    test_url = "https://example.com"
+    test_save_path = "/permission/denied/screenshot.png"
+
+    # Path をモック化し、mkdir が OSError を発生させるように設定
+    mock_path_instance = mocker.Mock(spec=Path)
+    mock_path_instance.parent.exists.return_value = False
+    mock_path_instance.parent.mkdir.side_effect = OSError("Permission denied")
+    mocker.patch('src.application.proxied_edge_browser.Path',
+                 return_value=mock_path_instance)
+
+    # Act & Assert
+    with pytest.raises(OSError, match="Permission denied"):
+        manager.take_screenshot(test_url, test_save_path)
+
+    # Assert
+    mock_path_instance.parent.mkdir.assert_called_once()
+    mock_driver.get.assert_not_called()  # get は呼ばれない
+    mock_driver.save_screenshot.assert_not_called()  # save も呼ばれない
+    mock_logger.error.assert_called_once()  # エラーログは1回
+    args, kwargs = mock_logger.error.call_args
+    assert "OSError during screenshot process" in args[0]
     assert kwargs.get("exc_info") is True
