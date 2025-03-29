@@ -3,12 +3,13 @@ from abc import ABC, abstractmethod
 from typing import List
 
 # 依存する ProxyInfo をインポート
+# このimportが成功するためには src/domain/proxy_info.py が必要です。
 from src.domain.proxy_info import ProxyInfo
-
 
 class ProxyProvider(ABC):
     """
     プロキシ情報のリストを提供するインターフェース (Abstract Base Class)。
+    サブクラスは get_proxies メソッドを実装する必要があります。
     """
     @abstractmethod
     def get_proxies(self) -> List[ProxyInfo]:
@@ -16,16 +17,14 @@ class ProxyProvider(ABC):
         利用可能なプロキシ情報のリストを取得する。
 
         Returns:
-            List[ProxyInfo]: プロキシ情報のリスト。
+            List[ProxyInfo]: プロキシ情報のリスト。リストが空の場合もあります。
         """
-        pass  # 実装はサブクラスで行う
-
+        pass # 実装はサブクラスに委ねる
 
 class ListProxyProvider(ProxyProvider):
     """
-    メモリ上のリストからプロキシ情報を提供する ProxyProvider の具象クラス。
+    メモリ上のPythonリストからプロキシ情報を提供する ProxyProvider の具象クラス。
     """
-
     def __init__(self, proxy_list: List[ProxyInfo]):
         """
         ListProxyProviderを初期化する。
@@ -36,13 +35,13 @@ class ListProxyProvider(ProxyProvider):
         Raises:
             TypeError: proxy_listがリストでない場合、またはリスト内の要素が ProxyInfo インスタンスでない場合。
         """
+        # 入力値の型チェック
         if not isinstance(proxy_list, list):
             raise TypeError("proxy_list must be a list")
         if not all(isinstance(item, ProxyInfo) for item in proxy_list):
-            raise TypeError(
-                "All items in proxy_list must be ProxyInfo instances")
+            raise TypeError("All items in proxy_list must be ProxyInfo instances")
 
-        # リストを内部に保持
+        # リストを内部属性として保持
         self._proxy_list = proxy_list
 
     def get_proxies(self) -> List[ProxyInfo]:
@@ -52,10 +51,7 @@ class ListProxyProvider(ProxyProvider):
         Returns:
             List[ProxyInfo]: プロキシ情報のリスト。
         """
-        # リスト自体を返す（変更されるリスクを受け入れる場合）
-        # 安全性を高めるなら self._proxy_list.copy() を返す
+        # 内部で保持しているリストの参照をそのまま返す
         return self._proxy_list
 
-# 必要に応じて __init__.py ファイルを作成
-# src/application/__init__.py (空ファイルでOK)
-# src/__init__.py (空ファイルでOK)
+# 必要に応じて src/application/__init__.py (空ファイル) を作成してください。
